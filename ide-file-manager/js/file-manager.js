@@ -13,12 +13,14 @@ let fileManagerView = angular.module('fileManager', ['ideUI', 'ideView', 'ideEdi
 fileManagerView.controller('FileManagerViewController', [
     '$scope',
     'messageHub',
+    'ViewParameters',
     'Editors',
     'transportApi',
     'repositoryApi',
     function (
         $scope,
         messageHub,
+        ViewParameters,
         Editors,
         transportApi,
         repositoryApi
@@ -56,7 +58,7 @@ fileManagerView.controller('FileManagerViewController', [
             search: {
                 case_sensitive: false,
             },
-            plugins: ['wholerow', 'dnd', 'search', 'state', 'types', 'sort'],
+            plugins: ['wholerow', 'search', 'state', 'types', 'sort'],
             dnd: {
                 large_drop_target: true,
                 large_drag_target: true,
@@ -114,44 +116,20 @@ fileManagerView.controller('FileManagerViewController', [
         $scope.jstreeWidget.on('dblclick.jstree', function (event) {
             let node = $scope.jstreeWidget.jstree(true).get_node(event.target);
             if (node.type === 'file') {
-                openFile(node);
+                openFile(node, 'monaco'); // Temporarily set monaco
             }
         });
 
-        $scope.jstreeWidget.on('copy_node.jstree', function (event, copyObj) {
-            // if (!copyObj.node.state.failedCopy) {
-            //     $scope.jstreeWidget.jstree(true).hide_node(copyObj.node);
-            //     let parent = $scope.jstreeWidget.jstree(true).get_node(copyObj.parent);
-            //     let spinnerId = showSpinner(parent);
-            //     let path;
-            //     path = (parent.data.path.endsWith('/') ? parent.data.path : parent.data.path + '/');
-            //     copyObj.node.data = {
-            //         path: path + copyObj.node.text,
-            //         contentType: copyObj.original.data.contentType,
-            //     };
-            // } else delete copyObj.node.state.failedCopy;
-        });
+        $scope.importRepository = function () {
+            messageHub.showDialogWindow(
+                "import",
+                { importRepository: true }
+            );
+        };
 
-        $scope.jstreeWidget.on('move_node.jstree', function (event, moveObj) {
-            // if (!moveObj.node.state.failedMove) {
-            //     let parent = $scope.jstreeWidget.jstree(true).get_node(moveObj.parent);
-            //     for (let i = 0; i < parent.children.length; i++) { // Temp solution
-            //         let node = $scope.jstreeWidget.jstree(true).get_node(parent.children[i]);
-            //         if (node.text === moveObj.node.text && node.id !== moveObj.node.id) {
-            //             moveObj.node.state.failedMove = true;
-            //             $scope.jstreeWidget.jstree(true).move_node(
-            //                 moveObj.node,
-            //                 $scope.jstreeWidget.jstree(true).get_node(moveObj.old_parent),
-            //                 moveObj.old_position,
-            //             );
-            //             messageHub.showAlertError('Could not move file', 'The destination contains a file with the same name.');
-            //             return;
-            //         }
-            //     }
-            //     $scope.jstreeWidget.jstree(true).hide_node(moveObj.node);
-            //     let spinnerId = showSpinner(parent);
-            // } else delete moveObj.node.state.failedMove;
-        });
+        $scope.exportRepository = function () {
+            transportApi.exportRepository();
+        };
 
         function getChildrenNames(node, type = '') {
             let root = $scope.jstreeWidget.jstree(true).get_node(node);
@@ -176,6 +154,14 @@ fileManagerView.controller('FileManagerViewController', [
         };
 
         $scope.deleteFileFolder = function (path, callback) {
+            repositoryApi.remove(path).then(function (response) {
+                if (response.status !== 204) {
+                    messageHub.setStatusError(`Unable to delete '${path}'.`);
+                } else {
+                    messageHub.setStatusMessage(`Deleted '${path}'.`);
+                    if (callback) callback();
+                }
+            });
         };
 
         $scope.reloadFileTree = function (basePath, setConfig = false) {
@@ -246,12 +232,38 @@ fileManagerView.controller('FileManagerViewController', [
                             }
                         ]
                     };
+                    let deleteObj = {
+                        id: "delete",
+                        label: "Delete",
+                        divider: true,
+                        shortcut: "Del",
+                        icon: "sap-icon--delete",
+                        data: node,
+                    };
                     let menuObj = {
                         callbackTopic: 'file-manager.tree.contextmenu',
-                        items: [
-                            newSubmenu,
-                        ]
+                        items: [],
                     };
+                    if (node.type === "folder") {
+                        menuObj.items.push(newSubmenu);
+                    } else if (node.type === "file") {
+                        let open = {
+                            id: "open",
+                            label: "Open",
+                            icon: "sap-icon--action",
+                            data: node,
+                        };
+                        // Temporarily disabled because of editor issues
+                        // let openWith = {
+                        //     id: "openWith",
+                        //     label: "Open With",
+                        //     icon: "sap-icon--action",
+                        //     items: getEditorsForType(node)
+                        // };
+                        menuObj.items.push(open);
+                        // menuObj.items.push(openWith);
+                    }
+                    menuObj.items.push(deleteObj);
                     return menuObj;
                 }
                 return;
@@ -352,21 +364,16 @@ fileManagerView.controller('FileManagerViewController', [
             return editors;
         }
 
-        function openFile(node, editor = undefined) {
-            let parent = node;
-            let extraArgs;
-            for (let i = 0; i < node.parents.length - 1; i++) {
-                parent = $scope.jstreeWidget.jstree(true).get_node(parent.parent);
-            }
-            if (parent.data.git) {
-                extraArgs = { gitName: parent.data.gitName };
-            }
+        function openFile(node, editor) {
             messageHub.openEditor(
-                `node.data.path`,
+                node.data.path,
                 node.text,
                 node.data.contentType,
                 editor,
-                extraArgs
+                {
+                    readOnly: $scope.parameters.perspectiveId !== 'workbench',
+                    resourceType: "repository",
+                },
             );
         }
 
@@ -403,25 +410,39 @@ fileManagerView.controller('FileManagerViewController', [
         function createFolder(parent, name, path) {
             repositoryApi.createCollection(path, name).then(function (response) {
                 if (response.status === 201) {
-                    repositoryApi.getMetadata(response.data).then(function (metadata) {
-                        if (metadata.status === 200) {
-                            $scope.jstreeWidget.jstree(true).deselect_all(true);
-                            $scope.jstreeWidget.jstree(true).select_node(
-                                $scope.jstreeWidget.jstree(true).create_node(
-                                    parent,
-                                    {
-                                        text: metadata.data.name,
-                                        type: 'folder',
-                                        data: {
-                                            path: metadata.data.path,
-                                        }
-                                    },
-                                )
-                            );
-                        } else {
-                            messageHub.showAlertError('Could not get metadata', `There was an error while getting metadata for '${name}'`);
-                        }
-                    });
+                    $scope.jstreeWidget.jstree(true).deselect_all(true);
+                    $scope.jstreeWidget.jstree(true).select_node(
+                        $scope.jstreeWidget.jstree(true).create_node(
+                            parent,
+                            {
+                                text: name,
+                                type: 'folder',
+                                data: {
+                                    path: (path.endsWith('/') ? path + name : `${path}/${name}`),
+                                }
+                            },
+                        )
+                    );
+                    // Bug #1948
+                    // repositoryApi.getMetadata(response.data).then(function (metadata) {
+                    //     if (metadata.status === 200) {
+                    //         $scope.jstreeWidget.jstree(true).deselect_all(true);
+                    //         $scope.jstreeWidget.jstree(true).select_node(
+                    //             $scope.jstreeWidget.jstree(true).create_node(
+                    //                 parent,
+                    //                 {
+                    //                     text: metadata.data.name,
+                    //                     type: 'folder',
+                    //                     data: {
+                    //                         path: metadata.data.path,
+                    //                     }
+                    //                 },
+                    //             )
+                    //         );
+                    //     } else {
+                    //         messageHub.showAlertError('Could not get metadata', `There was an error while getting metadata for '${name}'`);
+                    //     }
+                    // });
                 } else {
                     messageHub.showAlertError('Could not create a folder', `There was an error while creating '${name}'`);
                 }
@@ -473,21 +494,10 @@ fileManagerView.controller('FileManagerViewController', [
         );
 
         messageHub.onDidReceiveMessage(
-            "file-manager.formDialog.rename",
-            function (msg) {
-                if (msg.data.buttonId === "b1") {
-                } else {
-                    messageHub.hideFormDialog("fileManagerRenameForm");
-                }
-            },
-            true
-        );
-
-        messageHub.onDidReceiveMessage(
             'file-manager.tree.contextmenu',
             function (msg) {
                 if (msg.data.itemId === 'open') {
-                    openFile(msg.data.data);
+                    openFile(msg.data.data, 'monaco'); // Temporarily set monaco
                 } else if (msg.data.itemId === 'openWith') {
                     openFile(msg.data.data.node, msg.data.data.editorId);
                 } else if (msg.data.itemId === 'file') {
@@ -552,49 +562,14 @@ fileManagerView.controller('FileManagerViewController', [
                         "file-manager.formDialog.create.folder",
                         "Creating..."
                     );
-                } else if (msg.data.itemId === 'rename') {
-                    $scope.renameNodeData = msg.data.data;
-                    messageHub.showFormDialog(
-                        "fileManagerRenameForm",
-                        `Rename ${$scope.renameNodeData.type}`,
-                        [{
-                            id: "fdti1",
-                            type: "input",
-                            label: "Name",
-                            required: true,
-                            inputRules: {
-                                excluded: getChildrenNames($scope.renameNodeData.parent, 'file'),
-                                patterns: ['^[^/:]*$'],
-                            },
-                            value: $scope.renameNodeData.text,
-                        }],
-                        [{
-                            id: "b1",
-                            type: "emphasized",
-                            label: "Rename",
-                            whenValid: true
-                        },
-                        {
-                            id: "b2",
-                            type: "transparent",
-                            label: "Cancel",
-                        }],
-                        "file-manager.formDialog.rename",
-                        "Renameing..."
-                    );
                 } else if (msg.data.itemId === 'delete') {
                     messageHub.showDialogAsync(
                         `Delete '${msg.data.data.text}'?`,
-                        'This action cannot be undone. It is recommended that you unpublish and delete.',
+                        'This action cannot be undone.',
                         [{
                             id: 'b1',
-                            type: 'negative',
-                            label: 'Delete',
-                        },
-                        {
-                            id: 'b2',
                             type: 'emphasized',
-                            label: 'Delete & Unpublish',
+                            label: 'Delete',
                         },
                         {
                             id: 'b3',
@@ -602,21 +577,13 @@ fileManagerView.controller('FileManagerViewController', [
                             label: 'Cancel',
                         }],
                     ).then(function (dialogResponse) {
-                        function deleteNode() {
-                            $scope.jstreeWidget.jstree(true).delete_node(msg.data.data);
-                        };
                         if (dialogResponse.data === 'b1') {
-                            $scope.deleteFileFolder(msg.data.data.data.path, deleteNode);
-                        } else if (dialogResponse.data === 'b2') {
-                            $scope.deleteFileFolder(msg.data.data.data.path, deleteNode);
+                            $scope.deleteFileFolder(msg.data.data.data.path, function deleteNode() {
+                                $scope.jstreeWidget.jstree(true).delete_node(msg.data.data);
+                                messageHub.closeEditor(msg.data.data.data.path);
+                            });
                         }
                     });
-                } else if (msg.data.itemId === 'cut') {
-                    $scope.jstreeWidget.jstree(true).cut(msg.data.data);
-                } else if (msg.data.itemId === 'copy') {
-                    $scope.jstreeWidget.jstree(true).copy(msg.data.data);
-                } else if (msg.data.itemId === 'paste') {
-                    $scope.jstreeWidget.jstree(true).paste(msg.data.data);
                 }
             },
             true
@@ -624,4 +591,5 @@ fileManagerView.controller('FileManagerViewController', [
 
         // Initialization
         $scope.reloadFileTree($scope.basePath, true);
+        $scope.parameters = ViewParameters.get();
     }]);
