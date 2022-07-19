@@ -449,6 +449,10 @@ fileManagerView.controller('FileManagerViewController', [
             });
         }
 
+        messageHub.onRepositoryModified(function () {
+            $scope.reloadFileTree();
+        });
+
         messageHub.onDidReceiveMessage(
             'file-manager.tree.select',
             function (msg) {
