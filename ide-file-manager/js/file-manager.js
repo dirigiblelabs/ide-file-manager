@@ -9,30 +9,32 @@
  * SPDX-FileCopyrightText: 2010-2022 SAP SE or an SAP affiliate company and Eclipse Dirigible contributors
  * SPDX-License-Identifier: EPL-2.0
  */
-let fileManagerView = angular.module('fileManager', ['ideUI', 'ideView', 'ideEditors', 'ideTransport']);
+let fileManagerView = angular.module('fileManager', ['ideUI', 'ideView', 'ideEditors', 'ideTransport', 'ideRepository']);
 fileManagerView.controller('FileManagerViewController', [
     '$scope',
     'messageHub',
     'Editors',
     'transportApi',
+    'repositoryApi',
     function (
         $scope,
         messageHub,
         Editors,
         transportApi,
+        repositoryApi
     ) {
         $scope.searchVisible = false;
         $scope.searchField = { text: '' };
         $scope.newNodeData = {
             parent: '',
             path: '',
-            content: '',
         };
         $scope.renameNodeData;
         $scope.imageFileExts = ['ico', 'bmp', 'png', 'jpg', 'jpeg', 'gif', 'svg'];
         $scope.modelFileExts = ['extension', 'extensionpoint', 'edm', 'model', 'dsm', 'schema', 'bpmn', 'job', 'listener', 'websocket', 'roles', 'constraints', 'table', 'view'];
 
-        $scope.fileTree;
+        $scope.treeData = [];
+        $scope.basePath = '/';
 
         $scope.jstreeWidget = angular.element('#dgFileManager');
         $scope.spinnerObj = {
@@ -48,16 +50,35 @@ fileManagerView.controller('FileManagerViewController', [
                     variant: "compact",
                 },
                 data: function (node, cb) {
-                    cb($scope.fileTree);
+                    cb($scope.treeData);
                 },
             },
             search: {
                 case_sensitive: false,
             },
-            plugins: ["wholerow", "dnd", "search", "state", "types", "indicator"],
+            plugins: ['wholerow', 'dnd', 'search', 'state', 'types', 'sort'],
             dnd: {
                 large_drop_target: true,
                 large_drag_target: true,
+            },
+            sort: function (firstNodeId, secondNodeId) {
+                let firstNode = this.get_node(firstNodeId);
+                let secondNode = this.get_node(secondNodeId);
+                if (firstNode.type === "spinner") return -1;
+                else if (secondNode.type === "spinner") return 1;
+                else if (firstNode.type === secondNode.type) {
+                    let res = firstNode.text.localeCompare(secondNode.text, "en-GB", { numeric: true, sensitivity: "base" });
+                    if (res < 0) return -1;
+                    else if (res > 0) return 1;
+                    return 0;
+                } else if (firstNode.type === "folder") return -1;
+                else if (secondNode.type === "folder") return 1;
+                else {
+                    let res = firstNode.text.localeCompare(secondNode.text, "en-GB", { numeric: true, sensitivity: "base" });
+                    if (res < 0) return -1;
+                    else if (res > 0) return 1;
+                    return 0;
+                }
             },
             state: { key: 'ide-file-manager' },
             types: {
@@ -71,10 +92,6 @@ fileManagerView.controller('FileManagerViewController', [
                 },
                 folder: {
                     icon: "jstree-folder",
-                    valid_children: ['folder', 'file', 'spinner'],
-                },
-                project: {
-                    icon: "jstree-project",
                     valid_children: ['folder', 'file', 'spinner'],
                 },
                 spinner: {
@@ -161,6 +178,86 @@ fileManagerView.controller('FileManagerViewController', [
         $scope.deleteFileFolder = function (path, callback) {
         };
 
+        $scope.reloadFileTree = function (basePath, setConfig = false) {
+            $scope.treeData.length = 0;
+            repositoryApi.load(basePath).then(function (response) {
+                let collections = processChildren(response.data.collections);
+                let resources = processChildren(response.data.resources);
+                $scope.treeData = [].concat(collections, resources);
+                if (setConfig) $scope.jstreeWidget.jstree($scope.jstreeConfig);
+                else $scope.jstreeWidget.jstree(true).refresh();
+            })
+        };
+
+        $scope.contextMenuContent = function (element) {
+            if ($scope.jstreeWidget[0].contains(element)) {
+                let id;
+                if (element.tagName !== "LI") {
+                    let closest = element.closest("li");
+                    if (closest) id = closest.id;
+                    else return {
+                        callbackTopic: "file-manager.tree.contextmenu",
+                        items: [
+                            {
+                                id: "folder",
+                                label: "New Folder",
+                                icon: "sap-icon--add-folder",
+                                data: {
+                                    path: $scope.basePath,
+                                    parent: '#',
+                                },
+                            },
+                            {
+                                id: "file",
+                                label: "New File",
+                                icon: "sap-icon--add-document",
+                                data: {
+                                    path: $scope.basePath,
+                                    parent: '#',
+                                },
+                            },
+                        ]
+                    }
+                } else {
+                    id = element.id;
+                }
+                if (id) {
+                    let node = $scope.jstreeWidget.jstree(true).get_node(id);
+                    let newSubmenu = {
+                        id: "new",
+                        label: "New",
+                        icon: "sap-icon--create",
+                        items: [
+                            {
+                                id: "file",
+                                label: "File",
+                                data: {
+                                    path: node.data.path,
+                                    parent: node.id
+                                },
+                            },
+                            {
+                                id: "folder",
+                                label: "Folder",
+                                data: {
+                                    path: node.data.path,
+                                    parent: node.id
+                                },
+                            }
+                        ]
+                    };
+                    let menuObj = {
+                        callbackTopic: 'file-manager.tree.contextmenu',
+                        items: [
+                            newSubmenu,
+                        ]
+                    };
+                    return menuObj;
+                }
+                return;
+            } else return;
+        };
+
         let to = 0;
         $scope.search = function () {
             if (to) { clearTimeout(to); }
@@ -182,25 +279,22 @@ fileManagerView.controller('FileManagerViewController', [
             for (let i = 0; i < children.length; i++) {
                 let child = {
                     text: children[i].name,
-                    type: children[i].type,
-                    state: {
-                        status: children[i].status
-                    },
+                    type: (children[i].type === 'collection' ? 'folder' : 'file'),
                     data: {
                         path: children[i].path,
                     }
                 };
-                if (children[i].type === 'file') {
+                if (children[i].type === 'resource') {
                     child.data.contentType = children[i].contentType;
                     let icon = getFileIcon(children[i].name);
                     if (icon) child.icon = icon;
                 }
-                if (children[i].folders && children[i].files) {
-                    child['children'] = processChildren(children[i].folders.concat(children[i].files));
-                } else if (children[i].folders) {
-                    child['children'] = processChildren(children[i].folders);
-                } else if (children[i].files) {
-                    child['children'] = processChildren(children[i].files);
+                if (children[i].collections && children[i].resources) {
+                    child['children'] = processChildren(children[i].collections.concat(children[i].resources));
+                } else if (children[i].collections) {
+                    child['children'] = processChildren(children[i].collections);
+                } else if (children[i].resources) {
+                    child['children'] = processChildren(children[i].resources);
                 }
                 treeChildren.push(child);
             }
@@ -276,10 +370,62 @@ fileManagerView.controller('FileManagerViewController', [
             );
         }
 
-        function createFile(parent, name, path, content = '') {
+        function createFile(parent, name, path) {
+            repositoryApi.createResource(path, name).then(function (response) {
+                if (response.status === 201) {
+                    console.log(response.data);
+                    repositoryApi.getMetadata(response.data).then(function (metadata) {
+                        if (metadata.status === 200) {
+                            console.log(metadata);
+                            $scope.jstreeWidget.jstree(true).deselect_all(true);
+                            $scope.jstreeWidget.jstree(true).select_node(
+                                $scope.jstreeWidget.jstree(true).create_node(
+                                    parent,
+                                    {
+                                        text: metadata.data.name,
+                                        type: 'file',
+                                        data: {
+                                            path: metadata.data.path,
+                                        }
+                                    },
+                                )
+                            );
+                        } else {
+                            messageHub.showAlertError('Could not get metadata', `There was an error while getting metadata for '${name}'`);
+                        }
+                    });
+                } else {
+                    messageHub.showAlertError('Could not create a file', `There was an error while creating '${name}'`);
+                }
+            });
         }
 
         function createFolder(parent, name, path) {
+            repositoryApi.createCollection(path, name).then(function (response) {
+                if (response.status === 201) {
+                    repositoryApi.getMetadata(response.data).then(function (metadata) {
+                        if (metadata.status === 200) {
+                            $scope.jstreeWidget.jstree(true).deselect_all(true);
+                            $scope.jstreeWidget.jstree(true).select_node(
+                                $scope.jstreeWidget.jstree(true).create_node(
+                                    parent,
+                                    {
+                                        text: metadata.data.name,
+                                        type: 'folder',
+                                        data: {
+                                            path: metadata.data.path,
+                                        }
+                                    },
+                                )
+                            );
+                        } else {
+                            messageHub.showAlertError('Could not get metadata', `There was an error while getting metadata for '${name}'`);
+                        }
+                    });
+                } else {
+                    messageHub.showAlertError('Could not create a folder', `There was an error while creating '${name}'`);
+                }
+            });
         }
 
         messageHub.onDidReceiveMessage(
@@ -308,8 +454,7 @@ fileManagerView.controller('FileManagerViewController', [
             "file-manager.formDialog.create.file",
             function (msg) {
                 if (msg.data.buttonId === "b1") {
-                    createFile($scope.newNodeData.parent, msg.data.formData[0].value, $scope.newNodeData.path, $scope.newNodeData.content);
-                    $scope.newNodeData.content = '';
+                    createFile($scope.newNodeData.parent, msg.data.formData[0].value, $scope.newNodeData.path);
                 }
                 messageHub.hideFormDialog("fileManagerNewFileForm");
             },
@@ -348,7 +493,6 @@ fileManagerView.controller('FileManagerViewController', [
                 } else if (msg.data.itemId === 'file') {
                     $scope.newNodeData.parent = msg.data.data.parent;
                     $scope.newNodeData.path = msg.data.data.path;
-                    $scope.newNodeData.content = '';
                     messageHub.showFormDialog(
                         "fileManagerNewFileForm",
                         "Create a new file",
@@ -479,4 +623,5 @@ fileManagerView.controller('FileManagerViewController', [
         );
 
         // Initialization
+        $scope.reloadFileTree($scope.basePath, true);
     }]);

@@ -20,8 +20,8 @@
         <theme></theme>
         <script type="text/javascript" src="/services/v4/web/ide-core/ui/editors.js"></script>
         <script type="text/javascript" src="/services/v4/web/ide-transport-service/transport.js"></script>
+        <script type="text/javascript" src="/services/v4/web/ide-repository-service/repository.js"></script>
         <script type="text/javascript" src="/webjars/jstree/3.3.12/jstree.min.js"></script>
-        <script type="text/javascript" src="/services/v4/web/ide-core/ui/widgets/indicator.plugin.js"></script>
         <link type="text/css" rel="stylesheet" href="/services/v4/web/resources/styles/jstree.css" />
         <link type="text/css" rel="stylesheet" href="/services/v4/js/ide-core/services/loader.js?id=ide-view-css" />
         <script type="text/javascript" src="js/file-manager.js"></script>
@@ -37,7 +37,7 @@
             </fd-button>
             <fd-toolbar-separator></fd-toolbar-separator>
             <fd-button compact="true" dg-type="transparent" glyph="sap-icon--refresh" title="Refresh"
-                aria-label="Refresh" ng-click="reloadFileTree()"></fd-button>
+                aria-label="Refresh" ng-click="reloadFileTree(basePath)"></fd-button>
         </fd-toolbar>
         <fd-toolbar dg-size="cozy" ng-show="searchVisible">
             <fd-input type="search" placeholder="Search" ng-keyup="search()" ng-model="searchField.text"></fd-input>
