@@ -380,27 +380,41 @@ fileManagerView.controller('FileManagerViewController', [
         function createFile(parent, name, path) {
             repositoryApi.createResource(path, name).then(function (response) {
                 if (response.status === 201) {
-                    console.log(response.data);
-                    repositoryApi.getMetadata(response.data).then(function (metadata) {
-                        if (metadata.status === 200) {
-                            console.log(metadata);
-                            $scope.jstreeWidget.jstree(true).deselect_all(true);
-                            $scope.jstreeWidget.jstree(true).select_node(
-                                $scope.jstreeWidget.jstree(true).create_node(
-                                    parent,
-                                    {
-                                        text: metadata.data.name,
-                                        type: 'file',
-                                        data: {
-                                            path: metadata.data.path,
-                                        }
-                                    },
-                                )
-                            );
-                        } else {
-                            messageHub.showAlertError('Could not get metadata', `There was an error while getting metadata for '${name}'`);
-                        }
-                    });
+                    $scope.jstreeWidget.jstree(true).deselect_all(true);
+                    $scope.jstreeWidget.jstree(true).select_node(
+                        $scope.jstreeWidget.jstree(true).create_node(
+                            parent,
+                            {
+                                text: name,
+                                type: 'file',
+                                data: {
+                                    path: (path.endsWith('/') ? path + name : `${path}/${name}`),
+                                    contentType: 'text/plain',
+                                }
+                            },
+                        )
+                    );
+                    // Bug #1948
+                    // repositoryApi.getMetadata(response.data).then(function (metadata) {
+                    //     if (metadata.status === 200) {
+                    //         $scope.jstreeWidget.jstree(true).deselect_all(true);
+                    //         $scope.jstreeWidget.jstree(true).select_node(
+                    //             $scope.jstreeWidget.jstree(true).create_node(
+                    //                 parent,
+                    //                 {
+                    //                     text: metadata.data.name,
+                    //                     type: 'file',
+                    //                     data: {
+                    //                         path: metadata.data.path,
+                    //                         contentType: metadata.data.contentType,
+                    //                     }
+                    //                 },
+                    //             )
+                    //         );
+                    //     } else {
+                    //         messageHub.showAlertError('Could not get metadata', `There was an error while getting metadata for '${name}'`);
+                    //     }
+                    // });
                 } else {
                     messageHub.showAlertError('Could not create a file', `There was an error while creating '${name}'`);
                 }
@@ -506,12 +520,14 @@ fileManagerView.controller('FileManagerViewController', [
                     openFile(msg.data.data.node, msg.data.data.editorId);
                 } else if (msg.data.itemId === 'file') {
                     $scope.newNodeData.parent = msg.data.data.parent;
-                    $scope.newNodeData.path = msg.data.data.path;
+                    if (msg.data.data.parent === '#') {
+                        $scope.newNodeData.path = $scope.basePath;
+                    } else $scope.newNodeData.path = msg.data.data.path;
                     messageHub.showFormDialog(
                         "fileManagerNewFileForm",
                         "Create a new file",
                         [{
-                            id: "fdti1",
+                            id: "fmnffi1",
                             type: "input",
                             label: "Name",
                             required: true,
@@ -537,12 +553,14 @@ fileManagerView.controller('FileManagerViewController', [
                     );
                 } else if (msg.data.itemId === 'folder') {
                     $scope.newNodeData.parent = msg.data.data.parent;
-                    $scope.newNodeData.path = msg.data.data.path;
+                    if (msg.data.data.parent === '#') {
+                        $scope.newNodeData.path = $scope.basePath;
+                    } else $scope.newNodeData.path = msg.data.data.path;
                     messageHub.showFormDialog(
                         "fileManagerNewFolderForm",
                         "Create new folder",
                         [{
-                            id: "fdti1",
+                            id: "fmnffi1",
                             type: "input",
                             label: "Name",
                             required: true,
