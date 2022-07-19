@@ -30,14 +30,17 @@
     <body class="dg-vbox">
         <fd-toolbar>
             <fd-toolbar-spacer></fd-toolbar-spacer>
-            <fd-button compact="true" dg-type="transparent" glyph="sap-icon--download-from-cloud" title="Export"
-                aria-label="Export" ng-click="export()"></fd-button>
+            <fd-button compact="true" dg-type="transparent" glyph="sap-icon--refresh" title="Refresh"
+                aria-label="Refresh" ng-click="reloadFileTree(basePath)"></fd-button>
+            <fd-toolbar-separator></fd-toolbar-separator>
             <fd-button compact="true" dg-type="{{ searchVisible ? 'emphasized' : 'transparent' }}"
                 glyph="sap-icon--search" title="Toggle search" aria-label="Toggle search" ng-click="toggleSearch()">
             </fd-button>
             <fd-toolbar-separator></fd-toolbar-separator>
-            <fd-button compact="true" dg-type="transparent" glyph="sap-icon--refresh" title="Refresh"
-                aria-label="Refresh" ng-click="reloadFileTree(basePath)"></fd-button>
+            <fd-button compact="true" dg-type="transparent" glyph="sap-icon--upload-to-cloud" title="Import"
+                aria-label="Import" ng-click="importRepository()"></fd-button>
+            <fd-button compact="true" dg-type="transparent" glyph="sap-icon--download-from-cloud" title="Export"
+                aria-label="Export" ng-click="exportRepository()"></fd-button>
         </fd-toolbar>
         <fd-toolbar dg-size="cozy" ng-show="searchVisible">
             <fd-input type="search" placeholder="Search" ng-keyup="search()" ng-model="searchField.text"></fd-input>
