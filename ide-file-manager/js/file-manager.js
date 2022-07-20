@@ -9,20 +9,18 @@
  * SPDX-FileCopyrightText: 2010-2022 SAP SE or an SAP affiliate company and Eclipse Dirigible contributors
  * SPDX-License-Identifier: EPL-2.0
  */
-let fileManagerView = angular.module('fileManager', ['ideUI', 'ideView', 'ideEditors', 'ideTransport', 'ideRepository']);
+let fileManagerView = angular.module('fileManager', ['ideUI', 'ideView', 'ideEditors', 'ideRepository']);
 fileManagerView.controller('FileManagerViewController', [
     '$scope',
     'messageHub',
     'ViewParameters',
     'Editors',
-    'transportApi',
     'repositoryApi',
     function (
         $scope,
         messageHub,
         ViewParameters,
         Editors,
-        transportApi,
         repositoryApi
     ) {
         $scope.searchVisible = false;
@@ -103,33 +101,12 @@ fileManagerView.controller('FileManagerViewController', [
             },
         };
 
-        $scope.jstreeWidget.on('select_node.jstree', function (event, data) {
-            if (data.event && data.event.type === 'click' && data.node.type === 'file') {
-                messageHub.announceFileSelected({
-                    name: data.node.text,
-                    path: data.node.data.path,
-                    contentType: data.node.data.contentType,
-                });
-            }
-        });
-
         $scope.jstreeWidget.on('dblclick.jstree', function (event) {
             let node = $scope.jstreeWidget.jstree(true).get_node(event.target);
             if (node.type === 'file') {
                 openFile(node, 'monaco'); // Temporarily set monaco
             }
         });
-
-        $scope.importRepository = function () {
-            messageHub.showDialogWindow(
-                "import",
-                { importRepository: true }
-            );
-        };
-
-        $scope.exportRepository = function () {
-            transportApi.exportRepository();
-        };
 
         function getChildrenNames(node, type = '') {
             let root = $scope.jstreeWidget.jstree(true).get_node(node);
